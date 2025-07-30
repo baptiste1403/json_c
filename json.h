@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <string.h>
+#include <float.h>
 
 #include "arena.h"
 
@@ -15,16 +16,9 @@ typedef enum {
     ARRAY,
     STRING,
     NUMBER,
-    TRUE,
-    FALSE,
+    BOOLEAN,
     NILL
 } JSON_VALUE_TYPE;
-
-typedef enum {
-    JSON_TRUE,
-    JSON_FALSE,
-    JSON_NULL
-} JSON_ATOM;
 
 struct JsonElement;
 
@@ -47,7 +41,8 @@ typedef struct JsonValue {
         JsonArray array;
         char* string;
         double number;
-        JSON_ATOM atom;
+        bool boolean;
+        void* nill;
     };
 } JsonValue;
 
@@ -56,8 +51,24 @@ typedef struct JsonElement{
     JsonValue value;
 } JsonElement;
 
-JsonObject parse_json_string(char* json_string, bool* valid);
-const JsonValue* getByName(const JsonObject* json_object, const char* name);
+JsonObject parse_json_string(const char* json_string, bool* valid);
+char* write_json(const JsonObject* json_object);
+const JsonValue* get_by_name(const JsonObject* json_object, const char* name);
+
+void object_add_string(JsonObject* json_object, const char* name, const char* value);
+void object_add_number(JsonObject* json_object, const char* name, double number);
+void object_add_boolean(JsonObject* json_object, const char* name, bool boolean);
+void object_add_null(JsonObject* json_object, const char* name);
+void object_add_object(JsonObject* json_object, const char* name, JsonObject value);
+void object_add_array(JsonObject* json_object, const char* name, JsonArray value);
+
+void array_add_string(JsonArray* json_array, const char* value);
+void array_add_number(JsonArray* json_array, double number);
+void array_add_boolean(JsonArray* json_array, bool boolean);
+void array_add_null(JsonArray* json_array);
+void array_add_object(JsonArray* json_array, JsonObject value);
+void array_add_array(JsonArray* json_array, JsonArray value);
+
 void print_json_object(const JsonObject* json_object, size_t indent);
 void json_cleanup();
 

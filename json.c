@@ -1,4 +1,3 @@
-#include <stddef.h>
 #define ARENA_IMPLEMENTATION
 #include "json.h"
 
@@ -45,6 +44,13 @@ typedef struct {
 } StringBuilder;
 
 arena_t arena = {0};
+arena_t temp_arena = {0};
+
+void sb_append(StringBuilder* sb, const char* string) {
+    for(size_t i = 0; i < strlen(string); i++) {
+        arena_da_append(&arena, sb, string[i]);
+    }
+}
 
 Token token_iterator_next(TokenIterator* tk_iterator) {
     if(tk_iterator->iterator_index < tk_iterator->tokens->count) {
@@ -63,14 +69,14 @@ Token token_iterator_pick_next(TokenIterator* tk_iterator) {
 }
 
 Token new_token_string(TOKEN_TYPE type, const char* value) {
-    return (Token){type, .string = arena_strdup(&arena, value)};
+    return (Token){type, .string = arena_strdup(&temp_arena, value)};
 }
 
 Token new_token_number(TOKEN_TYPE type, double value) {
     return (Token){type, .number = value};
 }
 
-Token lex_symbols(char** json_string_iterator) {
+Token lex_symbols(const char** json_string_iterator) {
     size_t cursor = 0;
     Token token;
     char current = (*json_string_iterator)[cursor];
@@ -107,7 +113,7 @@ Token lex_symbols(char** json_string_iterator) {
     return token;
 }
 
-Token lex_space(char** json_string_iterator) {
+Token lex_space(const char** json_string_iterator) {
     size_t cursor = 0;
     Token token;
     char current = (*json_string_iterator)[cursor];
@@ -124,7 +130,7 @@ Token lex_space(char** json_string_iterator) {
     return token;
 }
 
-Token lex_string(char** json_string_iterator) {
+Token lex_string(const char** json_string_iterator) {
     size_t cursor = 0;
     Token token;
     char current = (*json_string_iterator)[cursor];
@@ -139,7 +145,7 @@ Token lex_string(char** json_string_iterator) {
         }
         if(current != '\0') {
             arena_da_append(&arena, &string_data, '\0');
-            token = new_token_string(TK_STRING, arena_strdup(&arena, string_data.items)); // fixme : remove arena_dup
+            token = new_token_string(TK_STRING, arena_strdup(&temp_arena, string_data.items)); // fixme : remove arena_dup
             cursor++;
             *json_string_iterator += cursor;
         } else {
@@ -153,7 +159,7 @@ Token lex_string(char** json_string_iterator) {
     return token;
 }
 
-Token lex_number(char** json_string_iterator) {
+Token lex_number(const char** json_string_iterator) {
     Token token;
     char* eptr = NULL;
     double number = strtod(*json_string_iterator, &eptr);
@@ -166,7 +172,7 @@ Token lex_number(char** json_string_iterator) {
     return token;
 }
 
-Token lex_atom(char** json_string_iterator, const char* atom, TOKEN_TYPE atom_type) {
+Token lex_atom(const char** json_string_iterator, const char* atom, TOKEN_TYPE atom_type) {
     Token token;
     if(!strncmp(*json_string_iterator, atom, strlen(atom))) {
         token = new_token_string(atom_type, atom);
@@ -177,7 +183,7 @@ Token lex_atom(char** json_string_iterator, const char* atom, TOKEN_TYPE atom_ty
     return token;
 }
 
-Token next_token(char** json_string_iterator) {
+Token next_token(const char** json_string_iterator) {
     Token token = {0};
 
     token = lex_symbols(json_string_iterator);
@@ -206,12 +212,12 @@ Token next_token(char** json_string_iterator) {
     return token;
 }
 
-TokenList lex_json_string(char* json_string) {
-    char* json_string_iterator = json_string;
+TokenList lex_json_string(const char* json_string) {
+    const char* json_string_iterator = json_string;
     TokenList tokens = {0};
 
     while (*json_string_iterator != '\0') {
-        arena_da_append(&arena, &tokens, next_token(&json_string_iterator));
+        arena_da_append(&temp_arena, &tokens, next_token(&json_string_iterator));
     }
 
     return tokens;
@@ -256,7 +262,7 @@ JsonValue parse_json_value(TokenIterator* tk_iterator, bool* valid) {
             break;
         case TK_STRING:
             json_value.type = STRING;
-            json_value.string = strdup(token.string);
+            json_value.string = arena_strdup(&arena, token.string);
             token_iterator_next(tk_iterator);
             break;
         case TK_NUMBER:
@@ -265,18 +271,18 @@ JsonValue parse_json_value(TokenIterator* tk_iterator, bool* valid) {
             token_iterator_next(tk_iterator);
             break;
         case TK_TRUE:
-            json_value.type = TRUE;
-            json_value.atom = JSON_TRUE;
+            json_value.type = BOOLEAN;
+            json_value.boolean = true;
             token_iterator_next(tk_iterator);
             break;
         case TK_FALSE:
-            json_value.type = FALSE;
-            json_value.atom = JSON_FALSE;
+            json_value.type = BOOLEAN;
+            json_value.boolean = false;
             token_iterator_next(tk_iterator);
             break;
         case TK_NULL:
             json_value.type = NILL;
-            json_value.atom = JSON_NULL;
+            json_value.nill = NULL;
             token_iterator_next(tk_iterator);
             break;
         default:
@@ -475,11 +481,8 @@ void print_value(const JsonValue* json_value, size_t indent) {
         case NUMBER:
             printf("%f", json_value->number);
             break;
-        case TRUE:
-            printf("null");
-            break;
-        case FALSE:
-            printf("false");
+        case BOOLEAN:
+            printf("%s", json_value->boolean ? "true" : "false");
             break;
         case NILL:
             printf("null");
@@ -506,7 +509,7 @@ void print_json_object(const JsonObject* json_object, size_t indent) {
     }
 }
 
-JsonObject parse_json_string(char* json_string, bool* valid) {
+JsonObject parse_json_string(const char* json_string, bool* valid) {
     TokenList tokens = lex_json_string(json_string);
     TokenIterator tk_iterator = {
         .tokens = &tokens,
@@ -515,15 +518,172 @@ JsonObject parse_json_string(char* json_string, bool* valid) {
     bool is_valid;
     JsonObject result = parse_json_object(&tk_iterator, &is_valid);
     *valid = is_valid;
+    arena_free(&temp_arena);
     return result;
 }
 
-const JsonValue* getByName(const JsonObject* json_object, const char* name) {
+void write_json_object(const JsonObject* json_object, StringBuilder* sb);
+void write_json_array(const JsonArray* json_array, StringBuilder* sb);
+
+void write_value(const JsonValue* json_value, StringBuilder* sb) {
+    char* double_buf = arena_malloc(&temp_arena, DBL_MAX_10_EXP+2);
+    switch (json_value->type) {
+        case OBJECT:
+            write_json_object(&json_value->object, sb);
+            break;
+        case ARRAY:
+            write_json_array(&json_value->array, sb);
+            break;
+        case STRING:
+            sb_append(sb, "\"");
+            sb_append(sb, json_value->string);
+            sb_append(sb, "\"");
+            break;
+        case NUMBER:
+            sprintf(double_buf, "%f", json_value->number);
+            sb_append(sb, double_buf);
+            break;
+        case BOOLEAN:
+            if(json_value->boolean) {
+                sb_append(sb, "true");
+            } else {
+                sb_append(sb, "false");
+            }
+            break;
+        case NILL:
+            sb_append(sb, "null");
+            break;
+        break;
+    }
+    arena_free(&temp_arena);
+}
+
+void write_json_array(const JsonArray* json_array, StringBuilder* sb) {
+    sb_append(sb, "[");
+    for (size_t i = 0; i < json_array->count; i++) {
+        write_value(&json_array->items[i], sb);
+        if(i < json_array->count-1) sb_append(sb, ",");
+    }
+    sb_append(sb, "]");
+}
+
+void write_json_object(const JsonObject* json_object, StringBuilder* sb) {
+    sb_append(sb, "{");
+    for (size_t i = 0; i < json_object->count; i++) {
+        JsonElement json_element = json_object->items[i];
+        sb_append(sb, "\"");
+        sb_append(sb, json_element.name);
+        sb_append(sb, "\"");
+        sb_append(sb, ":");
+        write_value(&json_element.value, sb);
+        if(i < json_object->count-1) sb_append(sb, ",");
+    }
+    sb_append(sb, "}");
+}
+
+char* write_json(const JsonObject* json_object) {
+    StringBuilder sb = {0};
+    write_json_object(json_object, &sb);
+    arena_da_append(&arena, &sb, '\0');
+    return sb.items;
+}
+
+const JsonValue* get_by_name(const JsonObject* json_object, const char* name) {
     for(size_t i = 0; i < json_object->count; i++) {
         JsonElement* json_element = &json_object->items[i];
         if(!strcmp(json_element->name, name)) return &json_element->value;
     }
     return NULL;
+}
+
+void object_add_string(JsonObject* json_object, const char* name, const char* value) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = STRING;
+    json_element.value.string = arena_strdup(&arena, value);
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void object_add_number(JsonObject* json_object, const char* name, double number) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = NUMBER;
+    json_element.value.number = number;
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void object_add_boolean(JsonObject* json_object, const char* name, bool boolean) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = BOOLEAN;
+    json_element.value.boolean = boolean;
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void object_add_null(JsonObject* json_object, const char* name) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = NILL;
+    json_element.value.nill = NULL;
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void object_add_object(JsonObject* json_object, const char* name, JsonObject value) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = OBJECT;
+    json_element.value.object = value;
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void object_add_array(JsonObject* json_object, const char* name, JsonArray value) {
+    JsonElement json_element = {0};
+    json_element.name = arena_strdup(&arena,name);
+    json_element.value.type = ARRAY;
+    json_element.value.array = value;
+    arena_da_append(&arena, json_object, json_element);
+}
+
+void array_add_string(JsonArray* json_array, const char* value) {
+    JsonValue json_value = {0};
+    json_value.type = STRING;
+    json_value.string = arena_strdup(&arena, value);
+    arena_da_append(&arena, json_array, json_value);
+}
+
+void array_add_number(JsonArray* json_array, double number) {
+    JsonValue json_value = {0};
+    json_value.type = NUMBER;
+    json_value.number = number;
+    arena_da_append(&arena, json_array, json_value);
+}
+
+void array_add_boolean(JsonArray* json_array, bool boolean) {
+    JsonValue json_value = {0};
+    json_value.type = BOOLEAN;
+    json_value.boolean = boolean;
+    arena_da_append(&arena, json_array, json_value);
+}
+
+void array_add_null(JsonArray* json_array) {
+    JsonValue json_value = {0};
+    json_value.type = NILL;
+    json_value.nill = NULL;
+    arena_da_append(&arena, json_array, json_value);
+}
+
+void array_add_object(JsonArray* json_array, JsonObject value) {
+    JsonValue json_value = {0};
+    json_value.type = OBJECT;
+    json_value.object = value;
+    arena_da_append(&arena, json_array, json_value);
+}
+
+void array_add_array(JsonArray* json_array, JsonArray value) {
+    JsonValue json_value = {0};
+    json_value.type = ARRAY;
+    json_value.array = value;
+    arena_da_append(&arena, json_array, json_value);
 }
 
 void json_cleanup() {
