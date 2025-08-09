@@ -8,7 +8,6 @@ typedef enum {
     TK_CLOSE_CURLY_BRACKET,
     TK_OPEN_SQUARE_BRACKET,
     TK_CLOSE_SQUARE_BRACKET,
-    TK_WHITESPACE,
     TK_COMMA,
     TK_COLON,
     TK_STRING,
@@ -113,21 +112,16 @@ Token lex_symbols(const char** json_string_iterator) {
     return token;
 }
 
-Token lex_space(const char** json_string_iterator) {
+void skip_space(const char** json_string_iterator) {
     size_t cursor = 0;
-    Token token;
     char current = (*json_string_iterator)[cursor];
     if(isspace(current)) {
         while (isspace(current)) {
             cursor++;
             current = (*json_string_iterator)[cursor];
         }
-        token = new_token_string(TK_WHITESPACE, "");
-    } else {
-        token = (Token){TK_NO_TOKEN};
     }
     *json_string_iterator += cursor;
-    return token;
 }
 
 Token lex_string(const char** json_string_iterator) {
@@ -186,11 +180,13 @@ Token lex_atom(const char** json_string_iterator, const char* atom, TOKEN_TYPE a
 Token next_token(const char** json_string_iterator) {
     Token token = {0};
 
+    skip_space(json_string_iterator);
+
     token = lex_symbols(json_string_iterator);
     if(token.type != TK_NO_TOKEN) return token;
 
-    token = lex_space(json_string_iterator);
-    if(token.type != TK_NO_TOKEN) return token;
+    //token = lex_space(json_string_iterator);
+    //if(token.type != TK_NO_TOKEN) return token;
     
     token = lex_string(json_string_iterator);
     if(token.type != TK_NO_TOKEN) return token;
@@ -223,13 +219,6 @@ TokenList lex_json_string(const char* json_string) {
     return tokens;
 }
 
-void parse_json_skip_space(TokenIterator* tk_iterator) {
-    if(token_iterator_pick_next(tk_iterator).type == TK_WHITESPACE) {
-        token_iterator_next(tk_iterator);
-    }
-    return;
-}
-
 JsonObject parse_json_object(TokenIterator* tk_iterator, bool* valid);
 
 JsonArray parse_json_array(TokenIterator* tk_iterator, bool* valid);
@@ -237,8 +226,6 @@ JsonArray parse_json_array(TokenIterator* tk_iterator, bool* valid);
 JsonValue parse_json_value(TokenIterator* tk_iterator, bool* valid) {
     JsonValue json_value = {0};
     *valid = true;
-
-    parse_json_skip_space(tk_iterator);
 
     Token token = token_iterator_pick_next(tk_iterator);
 
@@ -290,8 +277,6 @@ JsonValue parse_json_value(TokenIterator* tk_iterator, bool* valid) {
             return (JsonValue){0};
     }
 
-    parse_json_skip_space(tk_iterator);
-
     return json_value;
 }
 
@@ -305,8 +290,6 @@ JsonElement parse_json_element(TokenIterator* tk_iterator, bool* valid) {
         return (JsonElement){0};
     }
     json_element.name = arena_strdup(&arena, token.string);
-    
-    parse_json_skip_space(tk_iterator);
 
     if(token_iterator_next(tk_iterator).type != TK_COLON) {
         *valid = false;
@@ -331,8 +314,6 @@ JsonArray parse_json_array(TokenIterator* tk_iterator, bool* valid) {
         return (JsonArray){0};
     }
 
-    parse_json_skip_space(tk_iterator);
-
     if(token_iterator_pick_next(tk_iterator).type == TK_CLOSE_SQUARE_BRACKET) {
         token_iterator_next(tk_iterator);
         return json_array;
@@ -348,7 +329,6 @@ JsonArray parse_json_array(TokenIterator* tk_iterator, bool* valid) {
     arena_da_append(&arena, &json_array, json_value);
     while(token_iterator_pick_next(tk_iterator).type == TK_COMMA) {
         token_iterator_next(tk_iterator);
-        parse_json_skip_space(tk_iterator);
         json_value = parse_json_value(tk_iterator, &is_valid);
         if(!is_valid) {
             *valid = false;
@@ -375,8 +355,6 @@ JsonObject parse_json_object(TokenIterator* tk_iterator, bool* valid) {
         return (JsonObject){0};
     }
 
-    parse_json_skip_space(tk_iterator);
-
     if(token_iterator_pick_next(tk_iterator).type == TK_CLOSE_CURLY_BRACKET) {
         token_iterator_next(tk_iterator);
         return json_object;
@@ -391,7 +369,6 @@ JsonObject parse_json_object(TokenIterator* tk_iterator, bool* valid) {
     arena_da_append(&arena, &json_object, json_element);
     while(token_iterator_pick_next(tk_iterator).type == TK_COMMA) {
         token_iterator_next(tk_iterator);
-        parse_json_skip_space(tk_iterator);
         json_element = parse_json_element(tk_iterator, &is_valid);
         if(!is_valid) {
             *valid = false;
@@ -426,9 +403,6 @@ void print_tokens(const TokenList* tokens) {
                 break;
             case TK_CLOSE_SQUARE_BRACKET:
                 printf("token[%ld] : type = CLOSE_SQUARE_BRACKET\n", i);
-                break;
-            case TK_WHITESPACE:
-                printf("token[%ld] : type = WHITESPACE\n", i);
                 break;
             case TK_COMMA:
                 printf("token[%ld] : type = COMMA\n", i);
